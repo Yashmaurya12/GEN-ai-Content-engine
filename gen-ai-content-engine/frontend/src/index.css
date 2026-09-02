@@ -1,0 +1,4 @@
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: #07070a; color: #f0f0f4; }
+#root { min-height: 100vh; }
