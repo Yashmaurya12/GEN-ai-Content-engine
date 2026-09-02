@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import uvicorn
 
 load_dotenv()
+MEMORY_API_PORT = int(os.getenv("MEMORY_API_PORT", "8001"))
 
 # Setup Clients
 memory_client = MemoryClient(api_key=os.getenv("MEM0_API_KEY"))
@@ -20,7 +21,7 @@ app = FastAPI(title="Yash AI Memory API")
 # Enable CORS so the browser frontend can communicate with this backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[x.strip() for x in os.getenv("MEMORY_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,7 +48,7 @@ def add_memory(item: MemoryItem):
         )
         return {"message": "Memory saved successfully!"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail="Memory service unavailable")
 
 @app.post("/search_memory")
 def search_memory(query: QueryItem):
@@ -102,7 +103,7 @@ Rules:
         return {"ai_response": answer}
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail="Memory service unavailable")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    uvicorn.run(app, host="127.0.0.1", port=MEMORY_API_PORT)

@@ -1,4 +1,5 @@
-*, *::before, *::after { box-sizing: border-box; }
+/* Prevent FOUC — base background/color before React mounts */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
-body { margin: 0; background: #07070a; color: #f0f0f4; }
-#root { min-height: 100vh; }
+body { background: #0b0b0d; color: #eaeaee; margin: 0; }
+#root { min-height: 100vh; display: flex; flex-direction: column; }

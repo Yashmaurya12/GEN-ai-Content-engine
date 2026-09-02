@@ -75,6 +75,10 @@ Replace the placeholder values with your real ones:
 
 ```
 GROQ_API_KEY=paste_your_groq_key_here
+AUTH_SECRET=use_a_long_random_secret_in_production
+DEV_AUTH_FALLBACK=false
+FRONTEND_ORIGINS=http://localhost:3000
+MEMORY_API_PORT=8001
 SMTP_EMAIL=your_gmail@gmail.com
 SMTP_APP_PASSWORD=abcd efgh ijkl mnop
 ```
@@ -145,6 +149,10 @@ python3 -m http.server 3000 --directory frontend
 ```
 
 Then open your browser and go to: http://localhost:3000
+
+The Gen AI API is always port 8000. The standalone memory API is port 8001 (`python api.py`), and the Java gateway must use `MEMORY_API_URL=http://127.0.0.1:8001`; it must never point at port 8000. Set `VITE_GEN_AI_API_URL` for a non-local frontend deployment.
+
+OTP records are stored in memory for development only and are lost on restart. Use a shared Redis-backed repository before running multiple production workers. Set `DEV_AUTH_FALLBACK=true` only for local console OTP output; production requires email delivery and `AUTH_SECRET`.
 
 ---
 

@@ -1,9 +1,13 @@
 package com.yash.memory_gateway;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.RestTemplate;
-
+import org.springframework.web.client.*;
+import java.time.Duration;
 import java.util.Map;
 
 @RestController
@@ -11,20 +15,30 @@ import java.util.Map;
 @RequestMapping("/api")
 public class MemoryController {
 
-    private final String PYTHON_API_URL = "http://127.0.0.1:8000";
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final String pythonApiUrl;
+    private final RestTemplate restTemplate;
+    public MemoryController(@Value("${memory.api.url}") String url, RestTemplateBuilder builder,
+            @Value("${memory.gateway.connect-timeout-ms}") long connect,
+            @Value("${memory.gateway.read-timeout-ms}") long read) {
+        pythonApiUrl = url;
+        restTemplate = builder.setConnectTimeout(Duration.ofMillis(connect)).setReadTimeout(Duration.ofMillis(read)).build();
+    }
+    public record AddRequest(@NotBlank String text) {}
+    public record SearchRequest(@NotBlank String question) {}
 
     @PostMapping("/add")
-    public ResponseEntity<?> addMemory(@RequestBody Map<String, String> payload) {
-        String url = PYTHON_API_URL + "/add_memory";
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, payload, Map.class);
-        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    public ResponseEntity<?> addMemory(@Valid @RequestBody AddRequest payload) {
+        return proxy("/add_memory", payload);
     }
 
     @PostMapping("/search")
-    public ResponseEntity<?> searchMemory(@RequestBody Map<String, String> payload) {
-        String url = PYTHON_API_URL + "/search_memory";
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, payload, Map.class);
-        return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
+    public ResponseEntity<?> searchMemory(@Valid @RequestBody SearchRequest payload) {
+        return proxy("/search_memory", payload);
+    }
+    private ResponseEntity<?> proxy(String path, Object body) {
+        try { return restTemplate.postForEntity(pythonApiUrl + path, body, Map.class); }
+        catch (ResourceAccessException e) { return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).body(Map.of("error", "Memory service timeout or unavailable")); }
+        catch (HttpStatusCodeException e) { return ResponseEntity.status(e.getStatusCode()).body(Map.of("error", "Memory service rejected the request")); }
+        catch (RestClientException e) { return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of("error", "Memory service unavailable")); }
     }
 }

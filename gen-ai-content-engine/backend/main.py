@@ -1,6 +1,9 @@
 import os
 import re
-import random
+import secrets
+import hashlib
+import hmac
+import base64
 import smtplib
 import json
 import time
@@ -14,7 +17,7 @@ _env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(dotenv_path=_env_path)
 load_dotenv()  # also try local as fallback
 
-from fastapi import FastAPI, UploadFile, Form, HTTPException
+from fastapi import FastAPI, UploadFile, Form, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pypdf
@@ -24,20 +27,52 @@ import io
 from groq import Groq
 
 app = FastAPI()
+AUTH_SECRET = os.environ.get("AUTH_SECRET")
+DEV_AUTH_FALLBACK = os.environ.get("DEV_AUTH_FALLBACK", "false").lower() == "true"
+FRONTEND_ORIGINS = [x.strip() for x in os.environ.get("FRONTEND_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",") if x.strip()]
+if not AUTH_SECRET and not DEV_AUTH_FALLBACK:
+    raise RuntimeError("AUTH_SECRET must be configured")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=FRONTEND_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Store format: { email: {"code": "123456", "expires_at": timestamp} }
+# Development-only store. Replace this repository with Redis for multi-worker production deployments.
 otp_store = {}
 OTP_EXPIRY_SECONDS = 300  # 5 minutes
+OTP_MAX_ATTEMPTS = 5
+RESEND_COOLDOWN_SECONDS = 60
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+SUPPORTED_OUTPUTS = {"Exec Summary", "Advisory", "LinkedIn Post", "Video Script", "Presentation", "Twitter/X Thread", "Infographic"}
 
 # Note: Ensure groq is installed. Tesseract OS binaries must also be installed (e.g., apt-get install tesseract-ocr)
-groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+groq_key = os.environ.get("GROQ_API_KEY")
+if not groq_key:
+    raise RuntimeError("GROQ_API_KEY must be configured")
+groq_client = Groq(api_key=groq_key, timeout=30.0, max_retries=2)
+
+def _otp_hash(email, code):
+    return hmac.new((AUTH_SECRET or "dev-secret").encode(), f"{email}:{code}".encode(), hashlib.sha256).hexdigest()
+
+def _session_token(email):
+    payload = f"{email}:{int(time.time()) + 3600}".encode()
+    encoded = base64.urlsafe_b64encode(payload).decode().rstrip("=")
+    sig = hmac.new((AUTH_SECRET or "dev-secret").encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return f"{encoded}.{sig}"
+
+def _authenticated(request: Request):
+    token = request.cookies.get("session")
+    if not token or "." not in token: return False
+    encoded, signature = token.rsplit(".", 1)
+    if not hmac.compare_digest(signature, hmac.new((AUTH_SECRET or "dev-secret").encode(), encoded.encode(), hashlib.sha256).hexdigest()): return False
+    try:
+        email, expiry = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode().rsplit(":", 1)
+        return bool(email and time.time() < int(expiry))
+    except (ValueError, TypeError): return False
 
 # Configure Resend if key exists
 resend_api_key = os.environ.get("RESEND_API_KEY")
@@ -106,7 +141,9 @@ def dispatch_email(recipient_email: str, otp_code: str) -> dict:
         except Exception as e:
             print("[EMAIL] SMTP delivery failed:", e)
     
-    # 3. Development / Local Console Fallback
+    if not DEV_AUTH_FALLBACK:
+        return {"status": "unavailable", "channel": "email"}
+    # 3. Explicit development-only console fallback
     print(f"\n=======================================================")
     print(f" [LOCAL OTP] Code for {recipient_email} : {otp_code}")
     print(f" (Copy this code to log in immediately)")
@@ -115,69 +152,102 @@ def dispatch_email(recipient_email: str, otp_code: str) -> dict:
 
 @app.post("/auth/send")
 @app.post("/api/auth/send")
-def send_otp(req: AuthReq):
+def send_otp(req: AuthReq, request: Request):
     if not req.email or "@" not in req.email:
         raise HTTPException(status_code=400, detail="Please enter a valid email address.")
         
-    otp = str(random.randint(100000, 999999))
-    otp_store[req.email.lower().strip()] = {
-        "code": otp,
+    email = req.email.lower().strip()
+    now = time.time()
+    for key in list(otp_store):
+        if otp_store[key].get("expires_at", 0) <= now: del otp_store[key]
+    ip_key = f"ip:{request.client.host if request.client else 'unknown'}"
+    previous = otp_store.get(email)
+    ip_previous = otp_store.get(ip_key)
+    if ((previous and now - previous.get("sent_at", 0) < RESEND_COOLDOWN_SECONDS) or
+            (ip_previous and now - ip_previous.get("sent_at", 0) < RESEND_COOLDOWN_SECONDS)):
+        raise HTTPException(status_code=429, detail="Please wait before requesting another code.")
+    otp = f"{secrets.randbelow(1_000_000):06d}"
+    otp_store[email] = {
+        "hash": _otp_hash(email, otp),
         "expires_at": time.time() + OTP_EXPIRY_SECONDS
+        , "attempts": 0, "sent_at": now
     }
-    
-    result = dispatch_email(req.email.lower().strip(), otp)
-    return result
+    otp_store[ip_key] = {"sent_at": now, "expires_at": now + RESEND_COOLDOWN_SECONDS}
+    dispatch_email(email, otp)
+    return {"status": "sent", "message": "If the address is eligible, a verification code has been sent."}
 
 @app.post("/auth/verify")
 @app.post("/api/auth/verify")
-def verify_otp(req: AuthReq):
+def verify_otp(req: AuthReq, response: Response):
     email = req.email.lower().strip() if req.email else ""
     user_entry = otp_store.get(email)
     
     if not user_entry:
-        return False
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code.")
         
     # Check expiry (5 min)
     if time.time() > user_entry["expires_at"]:
         del otp_store[email]
-        raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new one.")
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code.")
         
-    if str(user_entry["code"]) == str(req.code).strip():
+    user_entry["attempts"] += 1
+    valid = hmac.compare_digest(user_entry["hash"], _otp_hash(email, str(req.code or "").strip()))
+    if valid:
         del otp_store[email]
-        return True
-        
-    return False
+        response.set_cookie("session", _session_token(email), httponly=True, secure=not DEV_AUTH_FALLBACK, samesite="lax", max_age=3600)
+        return {"authenticated": True, "email": email}
+    if user_entry["attempts"] >= OTP_MAX_ATTEMPTS: del otp_store[email]
+    raise HTTPException(status_code=400, detail="Invalid or expired verification code.")
+
+@app.post("/auth/logout")
+@app.post("/api/auth/logout")
+def logout(response: Response):
+    response.delete_cookie("session")
+    return {"authenticated": False}
 
 @app.post("/transform")
 @app.post("/api/transform")
 async def transform_content(
+    request: Request,
     file: Optional[UploadFile] = None,
     text: Optional[str] = Form(""),
     outputs: Optional[str] = Form("[]"),
     tone: Optional[str] = Form("Professional"),
     audience: Optional[str] = Form("General")
 ):
+    if not _authenticated(request): raise HTTPException(status_code=401, detail="Authentication required.")
+    try:
+        out_list = json.loads(outputs or "")
+    except (TypeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="outputs must be valid JSON.")
+    if not isinstance(out_list, list) or not out_list: raise HTTPException(status_code=400, detail="outputs must be a non-empty JSON array.")
+    if any(not isinstance(item, str) or item not in SUPPORTED_OUTPUTS for item in out_list): raise HTTPException(status_code=400, detail="Unsupported output format.")
     extracted_text = ""
     if file:
         content = await file.read()
-        filename = file.filename.lower()
+        if len(content) > MAX_UPLOAD_BYTES: raise HTTPException(status_code=400, detail="File exceeds the 10 MB limit.")
+        filename = (file.filename or "").lower()
+        if not filename: raise HTTPException(status_code=400, detail="A filename is required.")
         if filename.endswith(".txt"):
             extracted_text = content.decode("utf-8", errors="ignore")
         elif filename.endswith(".pdf"):
-            pdf = pypdf.PdfReader(io.BytesIO(content))
-            extracted_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+            try:
+                pdf = pypdf.PdfReader(io.BytesIO(content))
+                extracted_text = "\n".join(filter(None, [page.extract_text() for page in pdf.pages]))
+            except (ValueError, pypdf.errors.PdfReadError, OSError): raise HTTPException(status_code=400, detail="The PDF could not be read.")
         elif filename.endswith((".png", ".jpg", ".jpeg")):
-            img = Image.open(io.BytesIO(content))
-            extracted_text = pytesseract.image_to_string(img)
+            try:
+                img = Image.open(io.BytesIO(content)); img.verify(); img = Image.open(io.BytesIO(content))
+                extracted_text = pytesseract.image_to_string(img)
+            except (OSError, ValueError): raise HTTPException(status_code=400, detail="The image could not be read.")
+        else: raise HTTPException(status_code=400, detail="Unsupported file type.")
             
     combined_text = f"{text}\n\n{extracted_text}".strip()
     
     if not combined_text:
         raise HTTPException(status_code=400, detail="No input text or document provided.")
         
-    out_list = json.loads(outputs)
-    if not out_list:
-        raise HTTPException(status_code=400, detail="No output formats selected.")
+    combined_text = combined_text[:100_000]
     
     system_prompt = """You are an elite, world-class Content Strategist and Executive Communications Specialist.
 Your objective is to transform the user's input text into comprehensive, highly detailed, production-grade content for each requested format.
@@ -255,4 +325,4 @@ Generate the detailed JSON response now:"""
             last_error = exc
             continue
 
-    raise HTTPException(status_code=500, detail=f"AI generation failed after all retries: {str(last_error)}")
+    raise HTTPException(status_code=502, detail="AI generation is temporarily unavailable.")
