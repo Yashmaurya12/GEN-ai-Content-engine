@@ -48,8 +48,8 @@ export default function AuthScreen({ onAuth, gwUrl }) {
           ? 'Check your backend terminal for the OTP.'
           : 'Verification code sent to your email.'
       );
-    } catch {
-      setError('Failed to send code. Is the backend running?');
+    } catch (err) {
+      setError(err.message || 'Failed to send code. Is the backend running?');
     } finally {
       setLoading(false);
     }
