@@ -81,6 +81,7 @@ FRONTEND_ORIGINS=http://localhost:3000
 MEMORY_API_PORT=8001
 SMTP_EMAIL=your_gmail@gmail.com
 SMTP_APP_PASSWORD=abcd efgh ijkl mnop
+MEMORY_GATEWAY_TOKEN=use_a_long_random_shared_token
 ```
 
 > Do NOT add quotes around the values.
@@ -96,14 +97,14 @@ Open a terminal in the `gen-ai-content-engine` folder and run:
 ```
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install fastapi uvicorn groq pypdf pytesseract pillow python-multipart python-dotenv
+pip install -r backend/requirements.txt
 ```
 
 **Mac / Linux:**
 ```
 python3 -m venv .venv
 source .venv/bin/activate
-pip install fastapi uvicorn groq pypdf pytesseract pillow python-multipart python-dotenv
+pip install -r backend/requirements.txt
 ```
 
 ---
@@ -158,10 +159,10 @@ OTP records are stored in memory for development only and are lost on restart. U
 
 ## How to Use the App
 
-1. Enter your email and click "Send Verification Code"
-2. Check your inbox for the 6-digit OTP
-3. Enter the OTP to log in
-4. Paste any text, or upload a PDF / image / Word doc
+1. Enter your email and password and click "Log in"
+2. For a new email, check your inbox for the 6-digit OTP
+3. Enter the OTP to finish registration
+4. Paste any text, or upload a PDF / TXT file / PNG / JPG image
 5. Choose your output formats:
    - Executive Summary
    - Advisory
@@ -220,3 +221,20 @@ gen-ai-content-engine/
 |--------------|---------------------------------------------|------|
 | Groq (AI)    | https://console.groq.com/                  | Free |
 | Gmail SMTP   | https://myaccount.google.com/apppasswords  | Free |
+## Backend setup
+
+Install the backend dependencies with `pip install -r backend/requirements.txt`.
+Configure `GROQ_API_KEY` and `AUTH_SECRET`. Configure `MEM0_API_KEY` only when
+Mem0 chat-history/context storage is desired; account credentials are always
+stored locally in `backend/accounts.sqlite3` and are never sent to Mem0.
+If the memory gateway is used, configure the same strong random
+`MEMORY_GATEWAY_TOKEN` for both the Java gateway and `api.py`.
+
+For local development, set `DEV_AUTH_FALLBACK=true` to allow OTPs to be printed
+to the backend terminal when no email provider is configured. In production,
+configure Resend or SMTP and keep `DEV_AUTH_FALLBACK=false`.
+
+Transformation history is canonically stored in `backend/chat_history.json`.
+Mem0 receives a best-effort copy for context only, and its failures do not fail
+content generation. Deleting a history item removes its matching Mem0 copies as
+well.

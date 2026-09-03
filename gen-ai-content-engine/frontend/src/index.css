@@ -1,5 +1,13 @@
+@font-face {
+  font-family: 'Geist Sans';
+  src: url('./assets/Geist-Variable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 /* Prevent FOUC — base background/color before React mounts */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
-body { background: #0b0b0d; color: #eaeaee; margin: 0; }
+body { background: #0A0B0D; color: #E6E8EB; margin: 0; }
 #root { min-height: 100vh; display: flex; flex-direction: column; }

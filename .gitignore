@@ -6,3 +6,5 @@
 **/.vscode/
 **/target/
 *.log
+**/*.sqlite3
+**/chat_history.json

@@ -28,6 +28,7 @@ export default function GenerationControls({
   loading,
   loadingStep,
   error,
+  canGenerate,
 }) {
   const stepLabel = LOADING_STEPS[loadingStep % LOADING_STEPS.length];
 
@@ -75,10 +76,12 @@ export default function GenerationControls({
       </div>
 
       {/* Submit */}
+      <div className="sticky-action">
+        <div className="sticky-action-copy"><strong>{loading ? 'Preparing your outputs' : 'Ready to create'}</strong><span>{loading ? stepLabel : 'Formats will be generated from your source material'}</span></div>
       <button
         type="submit"
         className="btn btn-primary btn-full btn-generate"
-        disabled={loading}
+        disabled={loading || !canGenerate}
         aria-busy={loading}
       >
         {loading ? (
@@ -87,9 +90,10 @@ export default function GenerationControls({
             <span>{stepLabel}</span>
           </>
         ) : (
-          'Transform content'
+          'Generate outputs'
         )}
       </button>
+      </div>
 
       {/* Error */}
       {error && (

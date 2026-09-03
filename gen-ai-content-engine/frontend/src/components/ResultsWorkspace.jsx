@@ -28,6 +28,31 @@ function CheckIcon() {
   );
 }
 
+function cleanOutput(value) {
+  return String(value ?? '')
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '')
+    .replace(/\u{FE0F}/gu, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
+
+function FormattedOutput({ content }) {
+  return cleanOutput(content).split(/\n{2,}/).map((block, index) => {
+    const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) return null;
+    const first = lines[0];
+    const isHeading = lines.length === 1 && (/^\[[A-Z ]+\]$/.test(first) || /^(Hook|Key Takeaway|Executive Summary|Conclusion|Recommendations?|Insights?):/i.test(first));
+    if (isHeading) return <h3 className="results-content-heading" key={index}>{first.replace(/^\[|\]$/g, '')}</h3>;
+    return <div className="results-content-block" key={index}>{lines.map((line, lineIndex) => {
+      const bullet = /^[-*•]\s+/.test(line);
+      return bullet ? <div className="results-content-bullet" key={lineIndex}>{line.replace(/^[-*•]\s+/, '')}</div> : <p key={lineIndex}>{line}</p>;
+    })}</div>;
+  });
+}
+
 export default function ResultsWorkspace({ result, onCopy, copied }) {
   const entries = Object.entries(result);
 
@@ -49,7 +74,7 @@ export default function ResultsWorkspace({ result, onCopy, copied }) {
     ? activeTab
     : entries[0][0];
 
-  const activeContent = result[validTab] ?? '';
+  const activeContent = cleanOutput(result[validTab] ?? '');
   const isCopied = copied === validTab;
 
   const switchTab = (tab) => {
@@ -99,7 +124,7 @@ export default function ResultsWorkspace({ result, onCopy, copied }) {
         </div>
 
         <div className="results-content">
-          {activeContent}
+          <FormattedOutput content={activeContent} />
         </div>
 
         {/* Raw JSON — secondary, collapsed by default */}

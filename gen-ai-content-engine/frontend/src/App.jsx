@@ -7,6 +7,7 @@ import OutputSelector      from './components/OutputSelector';
 import GenerationControls  from './components/GenerationControls';
 import ResultsWorkspace    from './components/ResultsWorkspace';
 import Toast               from './components/Toast';
+import AnimatedContent     from './components/AnimatedContent';
 
 import './App.css';
 
@@ -45,6 +46,11 @@ export default function App() {
   // ── Auth ──────────────────────────────────────────────────
   const [isAuthed, setIsAuthed] = useState(false);
   const [email,    setEmail]    = useState('');
+  const [history, setHistory] = useState([]);
+  const [historyError, setHistoryError] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const historyRequestRef = useRef(0);
+  const emailRef = useRef('');
 
   // ── Transform state ───────────────────────────────────────
   const [outputs, setOutputs] = useState({
@@ -70,7 +76,6 @@ export default function App() {
 
   useEffect(() => {
     if (loading) {
-      setLoadingStep(0);
       stepTimerRef.current = setInterval(() => {
         setLoadingStep((s) => s + 1);
       }, LOADING_STEP_INTERVAL_MS);
@@ -82,19 +87,67 @@ export default function App() {
 
   // ── Auth handlers ─────────────────────────────────────────
   const handleAuth = (userEmail) => {
+    historyRequestRef.current += 1;
+    emailRef.current = userEmail;
     setIsAuthed(true);
     setEmail(userEmail);
+    setHistory([]);
+    setHistoryError('');
+    setShowHistory(false);
   };
 
   const logout = () => {
+    historyRequestRef.current += 1;
+    emailRef.current = '';
     fetch(`${GW_URL}/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
     setIsAuthed(false);
     setEmail('');
+    setHistory([]);
+    setHistoryError('');
+    setShowHistory(false);
     setResult(null);
     setText('');
     setFile(null);
     setEngineErr('');
     setLoading(false);
+  };
+
+  const openHistory = async () => {
+    const requestId = ++historyRequestRef.current;
+    const requestedEmail = email;
+    setHistoryError('');
+    try {
+      const res = await fetch(`${GW_URL}/history`, { credentials: 'include' });
+      const data = await res.json().catch(() => ({}));
+      if (requestId !== historyRequestRef.current || emailRef.current !== requestedEmail) return;
+      if (res.status === 401) {
+        logout();
+        return;
+      }
+      if (!res.ok) throw new Error(data.detail || `Unable to load history (${res.status}).`);
+      setHistory(data.history || []);
+    } catch (err) {
+      if (requestId !== historyRequestRef.current || emailRef.current !== requestedEmail) return;
+      setHistoryError(err.message || 'Unable to load history.');
+    }
+    if (requestId !== historyRequestRef.current || emailRef.current !== requestedEmail) return;
+    setShowHistory(true);
+  };
+  const selectHistory = (item) => { setResult(item.result || null); setText(item.source || ''); setTone(item.tone || 'Professional'); setAudience(item.audience || 'Leadership / Execs'); setShowHistory(false); };
+  const newWorkspace = () => { setResult(null); setText(''); setFile(null); setEngineErr(''); setShowHistory(false); };
+  const deleteHistory = async (id) => {
+    const item = history.find((entry) => entry.id === id);
+    const requestedEmail = email;
+    setHistory((items) => items.filter((item) => item.id !== id));
+    try {
+      const res = await fetch(`${GW_URL}/history/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) throw new Error('Unable to delete history item.');
+    } catch (err) {
+      if (emailRef.current === requestedEmail && item) {
+        setHistory((items) => items.some((entry) => entry.id === id) ? items : [item, ...items]);
+        setHistoryError(err.message);
+      }
+    }
   };
 
   // ── Transform handler ─────────────────────────────────────
@@ -113,6 +166,7 @@ export default function App() {
       return;
     }
 
+    setLoadingStep(0);
     setLoading(true);
     setEngineErr('');
     setResult(null);
@@ -175,41 +229,61 @@ export default function App() {
   }
 
   return (
-    <AppShell email={email} onLogout={logout}>
+    <AppShell email={email} onLogout={logout} onHistory={openHistory} onNewWorkspace={newWorkspace} history={history} onSelectHistory={selectHistory} onDeleteHistory={deleteHistory}>
+      {showHistory && (
+        <section className="workspace-section" style={{ maxWidth: 900, margin: '24px auto 0' }}>
+          <div className="section-heading"><div><span className="workspace-section-label">Chat history</span><p className="section-helper">Saved privately for {email}.</p></div><button type="button" className="auth-back" onClick={() => setShowHistory(false)}>Close</button></div>
+          {historyError ? <p className="form-msg form-msg--error" role="alert">{historyError}</p> : !history.length ? <p className="section-helper">No transformations saved yet.</p> : history.map((item) => (
+            <article key={item.id} className="workspace-section" style={{ marginTop: 12 }}>
+              <strong>{new Date(item.created_at * 1000).toLocaleString()}</strong>
+              <p>{item.source}</p>
+              <p className="section-helper">{item.outputs?.join(', ')}</p>
+            </article>
+          ))}
+        </section>
+      )}
       <div className="workspace">
         {/* Top bar */}
-        <header className="workspace-topbar">
-          <h1 className="workspace-title">Workspace</h1>
+        <AnimatedContent><header className="workspace-topbar">
+          <div className="eyebrow">CONTENT ENGINE / WORKSPACE</div>
+          <h1 className="workspace-title">Create content</h1>
           <p className="workspace-subtitle">
-            Repurpose source content for multi-channel publishing.
+            Turn source material into useful, ready-to-publish formats.
           </p>
-        </header>
+          <div className="progress" aria-label="Creation progress">
+            <span className="progress-step progress-step--current"><b>01</b> Source material</span>
+            <span className="progress-rule" />
+            <span className="progress-step"><b>02</b> Select formats</span>
+            <span className="progress-rule" />
+            <span className="progress-step"><b>03</b> Generate</span>
+          </div>
+        </header></AnimatedContent>
 
         {/* Main content */}
         <main className="workspace-main">
           <form className="workspace-form" onSubmit={transform} noValidate>
 
             {/* Source content */}
-            <section className="workspace-section" aria-labelledby="lbl-source">
-              <span className="workspace-section-label" id="lbl-source">Source content</span>
+            <AnimatedContent><section className="workspace-section" aria-labelledby="lbl-source">
+              <div className="section-heading"><div><span className="workspace-section-label" id="lbl-source">Source material</span><p className="section-helper">Paste a brief, notes, article, or transcript.</p></div></div>
               <SourceInput
                 text={text}
                 onTextChange={setText}
                 file={file}
                 onFileChange={setFile}
               />
-            </section>
+            </section></AnimatedContent>
 
             {/* Output formats */}
-            <section className="workspace-section" aria-labelledby="lbl-formats">
-              <span className="workspace-section-label" id="lbl-formats">Output formats</span>
+            <AnimatedContent><section className="workspace-section" aria-labelledby="lbl-formats">
+              <div className="section-heading"><div><span className="workspace-section-label" id="lbl-formats">Output formats</span><p className="section-helper">Choose the forms that fit your audience.</p></div></div>
               <OutputSelector
                 outputs={outputs}
                 onToggle={(opt) => setOutputs((o) => ({ ...o, [opt]: !o[opt] }))}
                 onToggleAll={setAllOutputs}
                 options={OUTPUT_OPTS}
               />
-            </section>
+            </section></AnimatedContent>
 
             {/* Tone, audience, and submit */}
             <GenerationControls
@@ -219,6 +293,7 @@ export default function App() {
               loading={loading}
               loadingStep={loadingStep}
               error={engineErr}
+              canGenerate={!!(text.trim() || file) && Object.values(outputs).some(Boolean)}
             />
 
           </form>

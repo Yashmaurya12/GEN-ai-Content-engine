@@ -1,14 +1,18 @@
 import os
+import hmac
 from dotenv import load_dotenv
 from mem0 import MemoryClient
 from groq import Groq
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
 load_dotenv()
 MEMORY_API_PORT = int(os.getenv("MEMORY_API_PORT", "8001"))
+MEMORY_GATEWAY_TOKEN = os.getenv("MEMORY_GATEWAY_TOKEN", "")
+if not MEMORY_GATEWAY_TOKEN:
+    raise RuntimeError("MEMORY_GATEWAY_TOKEN must be configured")
 
 # Setup Clients
 memory_client = MemoryClient(api_key=os.getenv("MEM0_API_KEY"))
@@ -34,13 +38,19 @@ class MemoryItem(BaseModel):
 class QueryItem(BaseModel):
     question: str
 
+def require_gateway_token(request):
+    supplied = request.headers.get("X-Memory-Gateway-Token", "")
+    if not hmac.compare_digest(supplied, MEMORY_GATEWAY_TOKEN):
+        raise HTTPException(status_code=401, detail="Memory gateway authentication required")
+
 @app.get("/")
 def read_root():
     return {"message": "AI Memory API is running!"}
 
 @app.post("/add_memory")
-def add_memory(item: MemoryItem):
+def add_memory(item: MemoryItem, request: Request):
     """Endpoint to save a new memory."""
+    require_gateway_token(request)
     try:
         memory_client.add(
             messages=[{"role": "user", "content": item.text}], 
@@ -51,8 +61,9 @@ def add_memory(item: MemoryItem):
         raise HTTPException(status_code=502, detail="Memory service unavailable")
 
 @app.post("/search_memory")
-def search_memory(query: QueryItem):
+def search_memory(query: QueryItem, request: Request):
     """Endpoint to search memories and get an AI response."""
+    require_gateway_token(request)
     try:
         # 1. Search Mem0
         results = memory_client.search(query.question, filters={"user_id": user_id})

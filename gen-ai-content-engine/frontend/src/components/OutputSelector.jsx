@@ -7,20 +7,8 @@ const FORMAT_DESCRIPTIONS = {
   'Twitter/X Thread': 'Numbered, shareable thread',
   'Infographic':      'Visual-first structured summary',
 };
-
-function CheckIcon() {
-  return (
-    <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-hidden="true">
-      <path
-        d="M1.5 4.5L3.5 6.5L7.5 2.5"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
+const FORMAT_META = { 'Exec Summary':'3–5 min', Advisory:'Approx. 500 words', 'LinkedIn Post':'Approx. 150 words', 'Video Script':'2–3 min', Presentation:'8–10 slides', 'Twitter/X Thread':'6–8 posts', Infographic:'Visual outline' };
+const FORMAT_ICONS = { 'Exec Summary':'▤', Advisory:'◌', 'LinkedIn Post':'in', 'Video Script':'▶', Presentation:'▥', 'Twitter/X Thread':'#', Infographic:'▦' };
 
 export default function OutputSelector({ outputs, onToggle, onToggleAll, options }) {
   const selectedCount = options.filter((opt) => outputs[opt]).length;
@@ -37,7 +25,7 @@ export default function OutputSelector({ outputs, onToggle, onToggleAll, options
       <div className="output-selector-header">
         <div className="output-meta">
           <span className="output-count">
-            {selectedCount} of {options.length} selected
+            {selectedCount} selected
           </span>
           <button
             type="button"
@@ -59,27 +47,25 @@ export default function OutputSelector({ outputs, onToggle, onToggleAll, options
         {options.map((opt) => {
           const selected = !!outputs[opt];
           return (
-            <label
+            <button
+              type="button"
               key={opt}
               className={`output-row${selected ? ' output-row--selected' : ''}`}
+              onClick={() => onToggle(opt)}
+              aria-pressed={selected}
+              aria-label={`${opt}: ${selected ? 'selected' : 'not selected'}`}
             >
-              <input
-                type="checkbox"
-                className="output-checkbox"
-                checked={selected}
-                onChange={() => onToggle(opt)}
-                aria-label={opt}
-              />
               <span className="output-indicator" aria-hidden="true">
-                {selected && <CheckIcon />}
+                <span className="output-indicator-dot" />
               </span>
               <div className="output-content">
-                <span className="output-name">{opt}</span>
+                <span className="output-icon" aria-hidden="true">{FORMAT_ICONS[opt]}</span><span className="output-name">{opt}</span>
                 <span className="output-desc">
                   {FORMAT_DESCRIPTIONS[opt] ?? ''}
                 </span>
               </div>
-            </label>
+              <span className="output-format-meta">{FORMAT_META[opt]}</span>
+            </button>
           );
         })}
       </div>

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import cognitoLogo from '../assets/cognito-logo.png';
 
 /* ── Icons ─────────────────────────────────────────────────── */
 function IconGrid() {
@@ -74,20 +75,13 @@ function IconChevron() {
 
 const NAV_ITEMS = [
   { id: 'workspace', label: 'Workspace', Icon: IconGrid,    disabled: false },
-  { id: 'history',   label: 'History',   Icon: IconHistory, disabled: true  },
+  { id: 'history',   label: 'History',   Icon: IconHistory, disabled: false },
   { id: 'settings',  label: 'Settings',  Icon: IconSettings,disabled: true  },
 ];
 
 /* ── Logo mark (2×2 grid) ──────────────────────────────────── */
 function LogoMark() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <rect x="1" y="1" width="8" height="8" rx="2" fill="var(--accent)" />
-      <rect x="11" y="1" width="8" height="8" rx="2" fill="var(--accent)" opacity="0.45" />
-      <rect x="1" y="11" width="8" height="8" rx="2" fill="var(--accent)" opacity="0.45" />
-      <rect x="11" y="11" width="8" height="8" rx="2" fill="var(--accent)" opacity="0.15" />
-    </svg>
-  );
+  return <img className="brand-logo" src={cognitoLogo} alt="Cognito logo" />;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────── */
@@ -99,6 +93,11 @@ export default function Sidebar({
   isMobile,
   drawerOpen,
   onDrawerClose,
+  onHistory,
+  onNewWorkspace,
+  history = [],
+  onSelectHistory,
+  onDeleteHistory,
 }) {
   // Lock scroll when mobile drawer is open
   useEffect(() => {
@@ -124,7 +123,7 @@ export default function Sidebar({
             <LogoMark />
           </div>
           {showLabels && (
-            <span className="sidebar-logo-text">Content Engine</span>
+            <span className="sidebar-logo-text">Cognito AI</span>
           )}
         </div>
 
@@ -162,6 +161,7 @@ export default function Sidebar({
                   id === 'workspace' ? 'sidebar-nav-item--active' : '',
                 ].filter(Boolean).join(' ')}
                 disabled={disabled}
+                onClick={() => id === 'history' && onHistory?.()}
                 aria-current={id === 'workspace' ? 'page' : undefined}
                 title={!showLabels ? label : undefined}
               >
@@ -170,9 +170,16 @@ export default function Sidebar({
                 </span>
                 {showLabels && <span className="sidebar-nav-label">{label}</span>}
                 {showLabels && disabled && (
-                  <span className="sidebar-nav-badge">Soon</span>
+                  <span className="sidebar-nav-badge">Coming later</span>
                 )}
               </button>
+              {id === 'workspace' && showLabels && <button type="button" className="sidebar-new-workspace" onClick={onNewWorkspace} title="start new workplace" aria-label="start new workplace">+</button>}
+              {id === 'history' && showLabels && history.length > 0 && <div className="sidebar-history-preview">
+                {history.slice(0, 4).map((item) => <div className="sidebar-history-item" key={item.id}>
+                  <button type="button" onClick={() => onSelectHistory?.(item)} title={item.source}><strong>{item.source?.slice(0, 28) || 'Untitled'}{item.source?.length > 28 ? '…' : ''}</strong><span>{item.outputs?.join(', ')}</span></button>
+                  <button type="button" className="sidebar-history-delete" onClick={(event) => { event.stopPropagation(); onDeleteHistory?.(item.id); }} aria-label="Delete history item">×</button>
+                </div>)}
+              </div>}
             </li>
           ))}
         </ul>

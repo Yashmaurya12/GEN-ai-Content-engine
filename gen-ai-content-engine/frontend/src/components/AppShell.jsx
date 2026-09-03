@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
+import DitherWave from './DitherWave';
 
-export default function AppShell({ email, onLogout, children }) {
+export default function AppShell({ email, onLogout, onHistory, onNewWorkspace, history = [], onSelectHistory, onDeleteHistory, children }) {
   // Initial collapsed state based on viewport
   const [collapsed, setCollapsed] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < 1024
@@ -32,6 +33,7 @@ export default function AppShell({ email, onLogout, children }) {
 
   return (
     <div className="shell">
+      <div className="background-layer"><DitherWave /></div>
       {/* Mobile overlay */}
       {isMobile && drawerOpen && (
         <div
@@ -46,6 +48,11 @@ export default function AppShell({ email, onLogout, children }) {
         onCollapseToggle={() => setCollapsed((c) => !c)}
         email={email}
         onLogout={onLogout}
+        onHistory={onHistory}
+        onNewWorkspace={onNewWorkspace}
+        history={history}
+        onSelectHistory={onSelectHistory}
+        onDeleteHistory={onDeleteHistory}
         isMobile={isMobile}
         drawerOpen={drawerOpen}
         onDrawerClose={() => setDrawerOpen(false)}
@@ -71,7 +78,7 @@ export default function AppShell({ email, onLogout, children }) {
                 <rect y="10.5" width="16" height="1.5" rx="0.75" fill="currentColor" />
               </svg>
             </button>
-            <span className="mobile-topbar-title">Content Engine</span>
+            <span className="mobile-topbar-title">Cognito AI</span>
           </div>
         )}
 

@@ -150,7 +150,7 @@ export default function SourceInput({ text, onTextChange, file, onFileChange }) 
       <div className="textarea-wrap">
         <textarea
           className="source-textarea"
-          placeholder="Or paste your content here — article, notes, report, transcript…"
+          placeholder="Start with the idea, context, or source material you want to repurpose…"
           value={text}
           onChange={(e) => onTextChange(e.target.value)}
           aria-label="Source text input"
@@ -161,6 +161,7 @@ export default function SourceInput({ text, onTextChange, file, onFileChange }) 
             {wordCount} {wordCount === 1 ? 'word' : 'words'}
           </span>
         )}
+        {text.length > 0 && <button type="button" className="clear-inline" onClick={() => onTextChange('')}>Clear</button>}
       </div>
     </div>
   );
