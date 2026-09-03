@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 export default function DotGrid({
-  dotSize = 5, gap = 15, baseColor = '#605a66', activeColor = '#c8832a',
+  dotSize = 5, gap = 15, baseColor = '#504b57', activeColor = '#f59e0b',
   proximity = 120, shockRadius = 250, shockStrength = 5, returnDuration = 1.5,
 }) {
   const canvasRef = useRef(null);

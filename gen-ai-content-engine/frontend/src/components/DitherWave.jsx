@@ -22,7 +22,7 @@ export default function DitherWave({ className = '', interactive = false, static
     const draw = () => {
       if (!width || !height) return;
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = 'rgba(201,139,75,.14)';
+      ctx.fillStyle = 'rgba(245,158,11,.18)';
       const step = 7;
 
       for (let y = 0; y < height; y += step) {
