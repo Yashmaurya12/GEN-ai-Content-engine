@@ -8,6 +8,7 @@ import GenerationControls  from './components/GenerationControls';
 import ResultsWorkspace    from './components/ResultsWorkspace';
 import Toast               from './components/Toast';
 import AnimatedContent     from './components/AnimatedContent';
+import HistoryDrawer       from './components/HistoryDrawer';
 
 import './App.css';
 
@@ -136,15 +137,15 @@ export default function App() {
   const selectHistory = (item) => { setResult(item.result || null); setText(item.source || ''); setTone(item.tone || 'Professional'); setAudience(item.audience || 'Leadership / Execs'); setShowHistory(false); };
   const newWorkspace = () => { setResult(null); setText(''); setFile(null); setEngineErr(''); setShowHistory(false); };
   const deleteHistory = async (id) => {
-    const item = history.find((entry) => entry.id === id);
     const requestedEmail = email;
-    setHistory((items) => items.filter((item) => item.id !== id));
     try {
       const res = await fetch(`${GW_URL}/history/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok) throw new Error('Unable to delete history item.');
+      if (emailRef.current === requestedEmail) {
+        setHistory((items) => items.filter((item) => item.id !== id));
+      }
     } catch (err) {
-      if (emailRef.current === requestedEmail && item) {
-        setHistory((items) => items.some((entry) => entry.id === id) ? items : [item, ...items]);
+      if (emailRef.current === requestedEmail) {
         setHistoryError(err.message);
       }
     }
@@ -230,18 +231,13 @@ export default function App() {
 
   return (
     <AppShell email={email} onLogout={logout} onHistory={openHistory} onNewWorkspace={newWorkspace} history={history} onSelectHistory={selectHistory} onDeleteHistory={deleteHistory}>
-      {showHistory && (
-        <section className="workspace-section" style={{ maxWidth: 900, margin: '24px auto 0' }}>
-          <div className="section-heading"><div><span className="workspace-section-label">Chat history</span><p className="section-helper">Saved privately for {email}.</p></div><button type="button" className="auth-back" onClick={() => setShowHistory(false)}>Close</button></div>
-          {historyError ? <p className="form-msg form-msg--error" role="alert">{historyError}</p> : !history.length ? <p className="section-helper">No transformations saved yet.</p> : history.map((item) => (
-            <article key={item.id} className="workspace-section" style={{ marginTop: 12 }}>
-              <strong>{new Date(item.created_at * 1000).toLocaleString()}</strong>
-              <p>{item.source}</p>
-              <p className="section-helper">{item.outputs?.join(', ')}</p>
-            </article>
-          ))}
-        </section>
-      )}
+      <HistoryDrawer 
+        isOpen={showHistory} 
+        onClose={() => setShowHistory(false)} 
+        history={history} 
+        onDelete={deleteHistory} 
+        onSelect={selectHistory} 
+      />
       <div className="workspace">
         {/* Top bar */}
         <AnimatedContent><header className="workspace-topbar">

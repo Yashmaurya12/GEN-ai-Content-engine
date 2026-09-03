@@ -174,12 +174,6 @@ export default function Sidebar({
                 )}
               </button>
               {id === 'workspace' && showLabels && <button type="button" className="sidebar-new-workspace" onClick={onNewWorkspace} title="start new workplace" aria-label="start new workplace">+</button>}
-              {id === 'history' && showLabels && history.length > 0 && <div className="sidebar-history-preview">
-                {history.slice(0, 4).map((item) => <div className="sidebar-history-item" key={item.id}>
-                  <button type="button" onClick={() => onSelectHistory?.(item)} title={item.source}><strong>{item.source?.slice(0, 28) || 'Untitled'}{item.source?.length > 28 ? '…' : ''}</strong><span>{item.outputs?.join(', ')}</span></button>
-                  <button type="button" className="sidebar-history-delete" onClick={(event) => { event.stopPropagation(); onDeleteHistory?.(item.id); }} aria-label="Delete history item">×</button>
-                </div>)}
-              </div>}
             </li>
           ))}
         </ul>

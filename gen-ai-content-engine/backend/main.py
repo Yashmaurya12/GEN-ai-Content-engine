@@ -15,6 +15,7 @@ import zipfile
 from email.message import EmailMessage
 from typing import Optional
 from pathlib import Path
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 # Load .env from the workspace root (two levels up from backend/)
@@ -80,7 +81,7 @@ groq_client = Groq(api_key=groq_key, timeout=30.0, max_retries=2)
 mem0_client = MemoryClient(api_key=os.environ["MEM0_API_KEY"]) if os.environ.get("MEM0_API_KEY") else None
 HISTORY_FILE = Path(__file__).with_name("chat_history.json")
 ACCOUNT_DB = Path(__file__).with_name("accounts.sqlite3")
-history_lock = threading.Lock()
+history_lock = threading.RLock()
 
 def _account_db():
     db = sqlite3.connect(ACCOUNT_DB)
@@ -132,13 +133,27 @@ def _delete_memory_copy(user_id, history_id):
     """Delete all Mem0 records carrying this local history ID."""
     if not mem0_client:
         return
-    for memory in _memories(user_id):
-        payload = _memory_payload(memory)
-        if not payload or str(payload.get("id")) != history_id:
-            continue
-        memory_id = memory.get("id") or memory.get("memory_id")
-        if memory_id:
-            mem0_client.delete(memory_id=memory_id)
+    page = 1
+    while True:
+        try:
+            result = mem0_client.get_all(filters={"user_id": user_id}, page=page, page_size=100)
+            memories = result.get("results", []) if isinstance(result, dict) else (result or [])
+            
+            for memory in memories:
+                payload = _memory_payload(memory)
+                if payload and str(payload.get("id")) == history_id:
+                    memory_id = memory.get("id") or memory.get("memory_id")
+                    if memory_id:
+                        mem0_client.delete(memory_id=memory_id)
+            
+            if isinstance(result, dict) and not result.get("next"):
+                break
+            if not isinstance(result, dict) or not memories:
+                break
+            page += 1
+        except Exception as e:
+            print(f"[Mem0] Error during pagination deletion: {e}")
+            break
 
 def _account(email):
     with _account_db() as db:
@@ -162,7 +177,11 @@ def _save_exact_history(email, payload):
             records = {}
         user_records = records.setdefault(email, [])
         user_records.append(payload)
-        records[email] = user_records[-MAX_HISTORY_ENTRIES:]
+        
+        # Sort and cap to 50 most recent
+        user_records.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        records[email] = user_records[:MAX_HISTORY_ENTRIES]
+        
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(prefix="chat_history.", suffix=".tmp", dir=HISTORY_FILE.parent)
         try:
@@ -569,9 +588,11 @@ Generate the detailed JSON response now:"""
                 print(f"[Transform] Success on model={model_name}")
                 try:
                     session_email = _authenticated_email(request)
+                    now_iso = datetime.now(timezone.utc).isoformat()
                     history_record = {
-                        "type": "chat_history", "id": str(uuid.uuid4()), "created_at": int(time.time()),
-                        "source": combined_text, "outputs": out_list, "tone": tone, "audience": audience,
+                        "type": "chat_history", "id": str(uuid.uuid4()), "created_at": now_iso,
+                        "source": combined_text[:200] + "..." if len(combined_text) > 200 else combined_text,
+                        "outputs": out_list, "tone": tone, "audience": audience,
                         "language": language, "detail_level": detail_level, "objective": objective,
                         "style": style, "source_fidelity": source_fidelity, "result": result,
                     }
@@ -607,8 +628,12 @@ def history(request: Request):
     try:
         entries = _read_exact_history(email)
         # Local JSON is the canonical history source; Mem0 is best-effort context storage.
-        entries.sort(key=lambda x: x.get("created_at", 0), reverse=True)
-        return {"history": entries[:50]}
+        entries.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+        preview_entries = []
+        for entry in entries[:50]:
+            preview = {k: v for k, v in entry.items() if k != "result"}
+            preview_entries.append(preview)
+        return {"history": preview_entries}
     except Exception as exc:
         print("[Mem0] history read failed:", exc)
         raise HTTPException(status_code=502, detail="History service unavailable.")
@@ -628,7 +653,6 @@ def delete_history(history_id: str, request: Request):
         _delete_memory_copy(email, history_id)
     except Exception as memory_error:
         print("[Mem0] history deletion failed:", memory_error)
-        raise HTTPException(status_code=502, detail="History item could not be deleted from all stores.")
 
     with history_lock:
         records = json.loads(HISTORY_FILE.read_text(encoding="utf-8")) if HISTORY_FILE.exists() else {}
@@ -636,5 +660,15 @@ def delete_history(history_id: str, request: Request):
         remaining = [entry for entry in entries if str(entry.get("id")) != history_id]
         if len(remaining) == len(entries): raise HTTPException(status_code=404, detail="History item not found.")
         records[email] = remaining
-        HISTORY_FILE.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+        
+        fd, temp_name = tempfile.mkstemp(prefix="chat_history.", suffix=".tmp", dir=HISTORY_FILE.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
+                json.dump(records, temp_file, ensure_ascii=False)
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+            os.replace(temp_name, HISTORY_FILE)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
         return {"status": "deleted"}
