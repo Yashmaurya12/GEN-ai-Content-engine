@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd gen-ai-content-engine/frontend && npm install && npm run build",
+  "outputDirectory": "gen-ai-content-engine/frontend/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
