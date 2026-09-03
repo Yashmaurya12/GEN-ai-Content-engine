@@ -1,0 +1,7 @@
+{
+  "name": "gen-ai-content-engine-root",
+  "private": true,
+  "scripts": {
+    "build": "cd gen-ai-content-engine/frontend && npm install && npm run build"
+  }
+}
